@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Optional
-import pandas as pd
+
+# import pandas as pd
+import polars as pd
 from datasets import load_dataset
 from dataclasses import dataclass
 
@@ -23,10 +25,10 @@ class DatasetMeta:
 class Row:
     options: list[str]
     answer: int  # index of options that is the answer, starting from 0
-    question: Optional[str] = None
-    id: Optional[str] = None
+    question: Optional[str] = ""
+    id: Optional[str] = ""
     context: Optional[str] = ""
-    subject: Optional[str] = None
+    subject: Optional[str] = ""
 
 
 class Dataset:
@@ -38,10 +40,12 @@ class Dataset:
         name: Optional[str] = None,
         cache_dir: str = CACHE_DATASET_PATH,
         number_of_samples: int = 10,
+        category: Optional[str] = None,
     ):
         self.path = path
         self.name = name
         self.split = split
+        self.category = category
         self.process_row_fn = process_row_fn
         self.cache_dir = cache_dir
         self.number_of_samples = number_of_samples
@@ -51,26 +55,20 @@ class Dataset:
         self.save_path = Path(f"cache/{self.identifier}.parquet")
 
     def save(self) -> None:
-        self.df.to_parquet(self.save_path)
+        # self.df.write_parquet(self.save_path)
+        pass
 
-    def load_dataset(self, shuffle_seed: Optional[int]) -> pd.DataFrame:
-        if self.save_path.exists():
-            df = pd.read_parquet(self.save_path.as_posix())
-            if len(df) < self.number_of_samples:
-                self.save_path.unlink()
-            else:
-                self.df = df
-
+    def load_dataset(self, dataset_seed: Optional[int], cache_dir: str) -> pd.DataFrame:
         if self.df is None:
             dataset_gen = load_dataset(
                 path=self.path,
                 name=self.name,
                 split=self.split,
-                cache_dir=CACHE_DATASET_PATH,
+                cache_dir=cache_dir,
                 streaming=True,
             )
-            if shuffle_seed is not None:
-                dataset_gen = dataset_gen.shuffle(seed=shuffle_seed)
+            if dataset_seed is not None:
+                dataset_gen = dataset_gen.shuffle(seed=dataset_seed)
             rows = []
             for i, row in enumerate(dataset_gen):
                 row = self.process_row(row)
@@ -78,7 +76,6 @@ class Dataset:
                 if i >= self.number_of_samples - 1:
                     break
             self.df = pd.DataFrame(rows)
-            self.df.to_parquet(self.save_path)
         return self.df
 
     def process_row(self, row: dict[str, Any]) -> Row:

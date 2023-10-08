@@ -21,7 +21,7 @@ def process_row_agieval(row: dict[str, Any]) -> Row:
 
 def process_row_arc(row: dict[str, Any]) -> Row:
     return Row(
-        id=row["id"],
+        id=str(row["id"]),
         question=row["question"],
         options=row["choices"]["text"],
         answer=row["choices"]["label"].index(row["answerKey"]),
@@ -30,7 +30,7 @@ def process_row_arc(row: dict[str, Any]) -> Row:
 
 def process_row_anli(row: dict[str, Any]) -> Row:
     return Row(
-        id=row["uid"],
+        id=str(row["uid"]),
         context=f"Premise: {row['premise']}\n\nHypothesis: {row['hypothesis']}\n",
         question="Does the the hypothesis follow from the context?",
         options=["Entailment", "Neutral", "Contradiction"],
@@ -40,7 +40,7 @@ def process_row_anli(row: dict[str, Any]) -> Row:
 
 def process_row_cosmoqa(row: dict[str, Any]) -> Row:
     return Row(
-        id=row["id"],
+        id=str(row["id"]),
         context=row["context"],
         question=row["question"],
         options=[row[k] for k in (k for k in row.keys() if "answer" in k)],
@@ -50,7 +50,7 @@ def process_row_cosmoqa(row: dict[str, Any]) -> Row:
 
 def process_row_hellaswag(row: dict[str, Any]) -> Row:
     return Row(
-        id=row["ind"],
+        id=str(row["ind"]),
         context=row["ctx"],
         question="What is the most likely ending to the sentence?",
         options=row["endings"],
@@ -71,7 +71,7 @@ def process_row_winogrande(row: dict[str, Any]) -> Row:
 
 def process_row_race(row: dict[str, Any]) -> Row:
     return Row(
-        id=row["example_id"],
+        id=str(row["example_id"]),
         context=row["article"],
         question=row["question"],
         options=row["options"],
