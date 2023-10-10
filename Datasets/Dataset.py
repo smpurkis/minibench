@@ -1,8 +1,7 @@
 from pathlib import Path
 from typing import Any, Optional
 
-# import pandas as pd
-import polars as pd
+import polars as pl
 from datasets import load_dataset
 from dataclasses import dataclass
 
@@ -49,16 +48,17 @@ class Dataset:
         self.process_row_fn = process_row_fn
         self.cache_dir = cache_dir
         self.number_of_samples = number_of_samples
-        self.df: Optional[pd.DataFrame] = None
-        self.results_df: Optional[pd.DataFrame] = None
+        self.df: Optional[pl.DataFrame] = None
+        self.results_df: Optional[pl.DataFrame] = None
         self.identifier = f"{self.path.replace('/', '_')}{f'-{self.name}' if self.name is not None else ''}-{self.split}".lower()
         self.save_path = Path(f"cache/{self.identifier}.parquet")
+        self.random_guess_score = None
 
-    def save(self) -> None:
-        # self.df.write_parquet(self.save_path)
-        pass
+    def calculate_dataset_metrics(self) -> None:
+        self.random_guess_score = 1 / self.df["options"].apply(len).mean()
+        print(self.identifier, self.random_guess_score)
 
-    def load_dataset(self, dataset_seed: Optional[int], cache_dir: str) -> pd.DataFrame:
+    def load_dataset(self, dataset_seed: Optional[int], cache_dir: str) -> pl.DataFrame:
         if self.df is None:
             dataset_gen = load_dataset(
                 path=self.path,
@@ -75,17 +75,16 @@ class Dataset:
                 rows.append(row)
                 if i >= self.number_of_samples - 1:
                     break
-            self.df = pd.DataFrame(rows)
+            self.df = pl.DataFrame(rows)
+            self.calculate_dataset_metrics()
         return self.df
 
     def process_row(self, row: dict[str, Any]) -> Row:
         return self.process_row_fn(row)
 
-    def form_prompt(self, row: pd.Series) -> str:
+    def form_prompt(self, row: pl.Series) -> str:
         options = [f"({i}) {option}" for i, option in enumerate(row["options"])]
         options = "\n".join(options)
-
-        # replace \n at the end of context with a space
 
         context = (
             f"CONTEXT \n" f"{row['context'].strip()}\n\n"

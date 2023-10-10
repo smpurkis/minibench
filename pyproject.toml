@@ -12,6 +12,8 @@ tqdm = "^4.66.1"
 pandas = "^2.1.1"
 llama-cpp-python = "^0.2.11"
 polars = "^0.19.7"
+matplotlib = "^3.8.0"
+bert-score = "^0.3.13"
 
 
 [build-system]

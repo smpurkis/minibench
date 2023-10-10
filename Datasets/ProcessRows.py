@@ -79,15 +79,25 @@ def process_row_race(row: dict[str, Any]) -> Row:
     )
 
 
-# def process_row_mathqa(row: dict[str, Any]) -> Row:
-#     options = [r.split(") ") for r in row["options"].split(",")]
-#     return Row(
-#         context=row["Problem"],
-#         question=row["problem"],
-#         options=row["answer"],
-#         answer=row["answer"],
-#         subject=row["category"],
-#     )
+def process_row_mathqa(row: dict[str, Any]) -> Row:
+    if row["options"][0] == "[":
+        options = [r.split(")")[1].strip() for r in eval(row["options"])]
+    else:
+        options = [
+            r.rsplit(",")[0].strip()
+            for r in row["options"].split(")")
+            if not r.strip().isalpha()
+        ]
+    if "c . 14" in options:
+        options[options.index("c . 14")] = "14"
+    answer_index = ord(row["correct"]) - ord("a")
+    return Row(
+        context="",
+        question=row["Problem"],
+        options=options,
+        answer=answer_index,
+        subject=row["category"],
+    )
 
 
 def process_row_truthfulqa(row: dict[str, Any]) -> Row:

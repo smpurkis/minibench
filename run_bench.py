@@ -7,9 +7,12 @@ from tqdm import tqdm
 import os
 import openai
 
-# import pandas as pd
-import polars as pd
+import polars as pl
 import json
+
+import argparse
+
+from llama_cpp import Llama
 
 # from threading import Thread
 # from save_thread_result import ThreadWithResult as Thread
@@ -26,13 +29,11 @@ from Datasets.ProcessRows import (
     process_row_hellaswag,
     process_row_winogrande,
     process_row_race,
-    # process_row_mathqa,
+    process_row_mathqa,
     process_row_truthfulqa,
 )
+from Datasets.plot import make_radar_chart
 
-import argparse
-
-from llama_cpp import Llama
 
 """
 dataset categories:
@@ -69,7 +70,6 @@ Safety
 """
 
 dataset_metadata = [
-    # RowMetadata(path="cais/mmlu", name="*", split="validation"),
     DatasetMeta(
         path="cais/mmlu",
         name="all",
@@ -92,13 +92,13 @@ dataset_metadata = [
         process_row_fn=process_row_arc,
         category="Knowledge/Multi-subject Test",
     ),
-    DatasetMeta(
-        path="ai2_arc",
-        name="ARC-Easy",
-        split="validation",
-        process_row_fn=process_row_arc,
-        category="Knowledge/Multi-subject Test",
-    ),
+    # DatasetMeta(
+    #     path="ai2_arc",
+    #     name="ARC-Easy",
+    #     split="validation",
+    #     process_row_fn=process_row_arc,
+    #     category="Knowledge/Multi-subject Test",
+    # ),
     DatasetMeta(
         path="anli",
         split="test_r1",
@@ -125,13 +125,13 @@ dataset_metadata = [
         process_row_fn=process_row_winogrande,
         category="Reasoning/Commonsense Reasoning",
     ),
-    DatasetMeta(
-        path="race",
-        name="middle",
-        split="validation",
-        process_row_fn=process_row_race,
-        category="Comprehension/Reading Comprehension",
-    ),
+    # DatasetMeta(
+    #     path="race",
+    #     name="middle",
+    #     split="validation",
+    #     process_row_fn=process_row_race,
+    #     category="Comprehension/Reading Comprehension",
+    # ),
     DatasetMeta(
         path="race",
         name="high",
@@ -139,7 +139,12 @@ dataset_metadata = [
         process_row_fn=process_row_race,
         category="Comprehension/Reading Comprehension",
     ),
-    # DatasetMeta(path="math_qa", split="validation", process_row_fn=process_fn=process_row_mathqa),
+    DatasetMeta(
+        path="math_qa",
+        split="validation",
+        process_row_fn=process_row_mathqa,
+        category="Math/Mathmatical Reasoning",
+    ),
     DatasetMeta(
         path="truthful_qa",
         name="multiple_choice",
@@ -169,7 +174,7 @@ def save_example_prompt(dataset: Dataset):
     save_path.write_text(prompt)
 
 
-def check_correct_answer(row: pd.Series, completion: str) -> int:
+def check_correct_answer(row: pl.Series, completion: str) -> int:
     score = completion[0] == str(row["answer"])
     if len(completion) > 1 and score:
         confirm = completion[1] == ")"
@@ -177,7 +182,7 @@ def check_correct_answer(row: pd.Series, completion: str) -> int:
     return score
 
 
-def run_query(llm: Llama, row: pd.Series, prompt: str) -> tuple[str, float]:
+def run_query(llm: Llama, row: pl.Series, prompt: str) -> tuple[str, float]:
     s = time()
     # resp = openai.Completion.create(
     #     engine="",
@@ -210,18 +215,21 @@ def load_all_datasets(
     cache_dir: str = CACHE_DATASET_PATH,
 ):
     s = time()
-    # pool = Pool(10)
-    # try:
-    #     pool.starmap(
-    #         load_dataset,
-    #         [(dataset, dataset_seed, cache_dir) for dataset in datasets],
-    #     )
-    # except Exception as e:
-    #     print(e)
-    # pool.close()
+
+    # parallel
+    pool = Pool(10)
+    try:
+        pool.starmap(
+            load_dataset,
+            [(dataset, dataset_seed, cache_dir) for dataset in datasets],
+        )
+    except Exception as e:
+        print(e)
+    pool.close()
+
     # serial
-    for dataset in datasets:
-        load_dataset(dataset, dataset_seed, cache_dir)
+    # for dataset in datasets:
+    #     load_dataset(dataset, dataset_seed, cache_dir)
     print(time() - s)
 
 
@@ -258,8 +266,7 @@ def run_bench(
             row["model"] = model
             row["time_taken"] = time_taken
             row["score"] = score
-            dataset.results_df = pd.DataFrame(rows)
-            # dataset.save()
+            dataset.results_df = pl.DataFrame(rows)
             count += 1
             pbar.update(1)
             query_time_taken += time_taken
@@ -270,6 +277,26 @@ def run_bench(
     score = sum([d.results_df.get_column("score").sum() for d in datasets])
     print(score)
     return score
+
+
+def calculate_category_scores(df: pl.DataFrame) -> dict[str, float]:
+    return {
+        r["category"]: r["score"]
+        for r in df.group_by("category").agg(pl.sum("score").alias("score")).to_dicts()
+    }
+
+
+def calculate_random_category_scores(datasets: list[Dataset]) -> dict[str, float]:
+    # sum over each category
+    random_category_scores = {}
+    for dataset in datasets:
+        if dataset.category not in random_category_scores:
+            random_category_scores[dataset.category] = []
+        random_category_scores[dataset.category].append(dataset.random_guess_score)
+    random_category_scores = {
+        k: sum(v) / len(v) for k, v in random_category_scores.items()
+    }
+    return random_category_scores
 
 
 def parse_args() -> argparse.Namespace:
@@ -298,9 +325,9 @@ def main():
     number_of_samples = args.number_of_samples
     results_folder = Path(args.results_location)
     results_folder.mkdir(exist_ok=True)
-    results_df = pd.DataFrame()
+    results_df = pl.DataFrame()
     if (results_folder / "results.csv").exists():
-        results_df = pd.read_csv(results_folder / "results.csv")
+        results_df = pl.read_csv(results_folder / "results.csv")
     for model in args.models.split(","):
         model_seed = args.model_seed
         print(
@@ -337,6 +364,7 @@ def main():
                 "model_seed": model_seed,
                 "dataset_seed": dataset_seed,
                 "number_of_samples": number_of_samples,
+                "timestamp": run_folder_name,
                 "datasets": [
                     {
                         "path": dataset.path,
@@ -359,21 +387,37 @@ def main():
 
             # combine all the datasets results into one and save to run name in results folder
             for dataset in datasets:
-                # dataset.results_df["dataset"] = dataset.identifier # this but using polars
-                dataset.results_df.with_columns(
-                    pd.lit(dataset.identifier).alias("dataset")
+                dataset.results_df = dataset.results_df.with_columns(
+                    pl.lit(dataset.identifier).alias("dataset")
                 )
-                # dataset.results_df["category"] = dataset.category
-                dataset.results_df.with_columns(
-                    pd.lit(dataset.category).alias("category")
+                dataset.results_df = dataset.results_df.with_columns(
+                    pl.lit(dataset.category).alias("category")
                 )
                 print(dataset.identifier, dataset.results_df.get_column("id").dtype)
 
-            all_dataset_results_df: pd.DataFrame = pd.concat(
+            all_dataset_results_df: pl.DataFrame = pl.concat(
                 [dataset.results_df for dataset in datasets]
             )
             all_dataset_results_df.write_parquet(
                 results_folder / run_folder_name / "datasets_results.parquet"
+            )
+
+            scores = {
+                r["dataset"]: r["score"]
+                for r in all_dataset_results_df.group_by("dataset")
+                .agg(pl.sum("score").alias("score"))
+                .to_dicts()
+            }
+            normalized_scores = {k: v / number_of_samples for k, v in scores.items()}
+            category_scores = calculate_category_scores(all_dataset_results_df)
+            normalized_category_scores = {
+                k: v / number_of_samples for k, v in category_scores.items()
+            }
+
+            make_radar_chart(
+                data_list=[category_scores, calculate_random_category_scores(datasets)],
+                labels=[model, "random"],
+                save_path=results_folder / run_folder_name / "radar_chart",
             )
 
             # save results_df after each run
@@ -382,11 +426,16 @@ def main():
                 "model_seed": model_seed,
                 "dataset_seed": dataset_seed,
                 "score": score,
+                "normalized_score": score / sum(len(datasets) * number_of_samples),
+                "scores": scores,
+                "normalized_scores": normalized_scores,
+                "category_scores": category_scores,
+                "normalized_category_scores": normalized_category_scores,
                 "number_of_samples": number_of_samples,
                 "run_folder_name": run_folder_name,
             }
             # don't use append, it's slow
-            results_df = pd.concat([results_df, pd.DataFrame([result])])
+            results_df = pl.concat([results_df, pl.DataFrame([result])])
             results_df.write_csv(results_folder / "results.csv")
         results_df.write_csv(results_folder / "results.csv")
     # show results_df after all runs
