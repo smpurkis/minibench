@@ -1,7 +1,7 @@
+import json
 from pathlib import Path
 
 import polars as pl
-import json
 
 if __name__ == "__main__":
     results_dir = Path("results")

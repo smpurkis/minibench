@@ -1,38 +1,37 @@
+import argparse
+import json
+import os
 from datetime import datetime
+from functools import cache
+from multiprocessing.dummy import Pool
 from pathlib import Path
 from time import sleep, time
-from typing import Optional
-from datasets import load_dataset
-from tqdm import tqdm
-import os
+from typing import Any, Optional
+
 import openai
-
 import polars as pl
-import json
-
-import argparse
-
+from datasets import load_dataset
 from llama_cpp import Llama
+from tqdm import tqdm
+
+from Datasets.Dataset import CACHE_DATASET_PATH, Dataset, DatasetMeta
+from Datasets.plot import make_radar_chart
+from Datasets.ProcessRows import (
+    process_row_agieval,
+    process_row_anli,
+    process_row_arc,
+    process_row_cosmoqa,
+    process_row_hellaswag,
+    process_row_mathqa,
+    process_row_mmlu,
+    process_row_race,
+    process_row_truthfulqa,
+    process_row_winogrande,
+)
 
 # from threading import Thread
 # from save_thread_result import ThreadWithResult as Thread
 # from multiprocessing.pool import Pool
-
-from multiprocessing.dummy import Pool
-from Datasets.Dataset import Dataset, DatasetMeta, CACHE_DATASET_PATH
-from Datasets.ProcessRows import (
-    process_row_mmlu,
-    process_row_agieval,
-    process_row_arc,
-    process_row_anli,
-    process_row_cosmoqa,
-    process_row_hellaswag,
-    process_row_winogrande,
-    process_row_race,
-    process_row_mathqa,
-    process_row_truthfulqa,
-)
-from Datasets.plot import make_radar_chart
 
 
 """
@@ -203,10 +202,9 @@ def run_query(llm: Llama, row: pl.Series, prompt: str) -> tuple[str, float]:
 
 def load_dataset(
     dataset: Dataset,
-    dataset_seed: Optional[int] = None,
     cache_dir: str = CACHE_DATASET_PATH,
 ):
-    dataset.load_dataset(dataset_seed=dataset_seed, cache_dir=cache_dir)
+    dataset.load_dataset(cache_dir=cache_dir)
 
 
 def load_all_datasets(
@@ -217,19 +215,19 @@ def load_all_datasets(
     s = time()
 
     # parallel
-    pool = Pool(10)
-    try:
-        pool.starmap(
-            load_dataset,
-            [(dataset, dataset_seed, cache_dir) for dataset in datasets],
-        )
-    except Exception as e:
-        print(e)
-    pool.close()
+    # pool = Pool(5)
+    # try:
+    #     pool.starmap(
+    #         load_dataset,
+    #         [(dataset, cache_dir) for dataset in datasets],
+    #     )
+    # except Exception as e:
+    #     print(e)
+    # pool.close()
 
     # serial
-    # for dataset in datasets:
-    #     load_dataset(dataset, dataset_seed, cache_dir)
+    for dataset in datasets:
+        load_dataset(dataset, cache_dir)
     print(time() - s)
 
 
@@ -299,6 +297,83 @@ def calculate_random_category_scores(datasets: list[Dataset]) -> dict[str, float
     return random_category_scores
 
 
+def get_datasets(number_of_samples: int, dataset_seed: int = 1) -> list[Dataset]:
+    datasets = [
+        Dataset(
+            path=meta.path,
+            name=meta.name,
+            split=meta.split,
+            number_of_samples=number_of_samples,
+            process_row_fn=meta.process_row_fn,
+            category=meta.category,
+            seed=dataset_seed,
+        )
+        for meta in tqdm(dataset_metadata)
+    ]
+    print(f"Loading datasets with seed: {dataset_seed}")
+    load_all_datasets(datasets)
+    return datasets
+
+
+def save_overall_results(
+    results_folder: Path,
+    number_of_samples: int,
+):
+    # form results_df from all the results so far
+    results_df = pl.DataFrame()
+    for result_folder in Path(results_folder).iterdir():
+        if result_folder.is_file():
+            continue
+        metadata = json.load(
+            open(result_folder / "metadata.json", "r"),
+        )
+        datasets_df = pl.read_parquet(
+            result_folder / "datasets_results.parquet",
+        )
+
+        datasets = get_datasets(number_of_samples, metadata["dataset_seed"])
+
+        scores = {
+            r["dataset"]: r["score"]
+            for r in datasets_df.group_by("dataset")
+            .agg(pl.sum("score").alias("score"))
+            .to_dicts()
+        }
+        normalized_scores = {k: v / number_of_samples for k, v in scores.items()}
+        category_scores = calculate_category_scores(datasets_df)
+        normalized_category_scores = {
+            k: v / (len([d for d in datasets if d.category == k]) * number_of_samples)
+            for k, v in category_scores.items()
+        }
+        score = sum(scores.values())
+
+        result = {
+            "model": metadata["model"],
+            "model_seed": metadata["model_seed"],
+            "dataset_seed": metadata["dataset_seed"],
+            "score": score,
+            "normalized_score": score / (len(metadata["datasets"]) * number_of_samples),
+            "scores": scores,
+            "normalized_scores": normalized_scores,
+            "category_scores": category_scores,
+            "normalized_category_scores": normalized_category_scores,
+            "number_of_samples": number_of_samples,
+            "run_folder_name": result_folder.name,
+        }
+        results_df = pl.DataFrame([*results_df.to_dicts(), result])
+    data_list = [
+        calculate_random_category_scores(datasets),
+        *results_df["normalized_category_scores"].to_list(),
+    ]
+    labels = ["random", *results_df["model"].to_list()]
+    results_df.write_parquet(results_folder / "results.parquet")
+    make_radar_chart(
+        data_list=data_list,
+        labels=labels,
+        save_path=results_folder / "radar_chart",
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -325,9 +400,11 @@ def main():
     number_of_samples = args.number_of_samples
     results_folder = Path(args.results_location)
     results_folder.mkdir(exist_ok=True)
+    save_overall_results(results_folder, number_of_samples=number_of_samples)
     results_df = pl.DataFrame()
     if (results_folder / "results.csv").exists():
-        results_df = pl.read_csv(results_folder / "results.csv")
+        results_df = pl.read_parquet(results_folder / "results.parquet")
+
     for model in args.models.split(","):
         model_seed = args.model_seed
         print(
@@ -339,22 +416,9 @@ def main():
 
         dataset_seeds = [int(seed) for seed in args.dataset_seeds.split(",")]
         for dataset_seed in dataset_seeds:
-            run_folder_name = (
-                datetime.now().isoformat().replace(":", "-").replace(".", "-")
-            )
-            datasets = [
-                Dataset(
-                    path=meta.path,
-                    name=meta.name,
-                    split=meta.split,
-                    number_of_samples=number_of_samples,
-                    process_row_fn=meta.process_row_fn,
-                    category=meta.category,
-                )
-                for meta in tqdm(dataset_metadata)
-            ]
-            print(f"Running dataset seed: {dataset_seed}")
-            load_all_datasets(datasets, dataset_seed=dataset_seed)
+            timestamp = datetime.now().isoformat().replace(":", "-").replace(".", "-")
+            run_folder_name = f"{model}-ms-{model_seed}-ds-{dataset_seed}-{timestamp}"
+            datasets = get_datasets(number_of_samples, dataset_seed=dataset_seed)
             score = run_bench(llm, model, datasets, number_of_samples)
 
             # save metadata as json to run name in results folder
@@ -364,7 +428,7 @@ def main():
                 "model_seed": model_seed,
                 "dataset_seed": dataset_seed,
                 "number_of_samples": number_of_samples,
-                "timestamp": run_folder_name,
+                "timestamp": timestamp,
                 "datasets": [
                     {
                         "path": dataset.path,
@@ -411,11 +475,16 @@ def main():
             normalized_scores = {k: v / number_of_samples for k, v in scores.items()}
             category_scores = calculate_category_scores(all_dataset_results_df)
             normalized_category_scores = {
-                k: v / number_of_samples for k, v in category_scores.items()
+                k: v
+                / (len([d for d in datasets if d.category == k]) * number_of_samples)
+                for k, v in category_scores.items()
             }
 
             make_radar_chart(
-                data_list=[category_scores, calculate_random_category_scores(datasets)],
+                data_list=[
+                    normalized_category_scores,
+                    calculate_random_category_scores(datasets),
+                ],
                 labels=[model, "random"],
                 save_path=results_folder / run_folder_name / "radar_chart",
             )
@@ -426,7 +495,7 @@ def main():
                 "model_seed": model_seed,
                 "dataset_seed": dataset_seed,
                 "score": score,
-                "normalized_score": score / sum(len(datasets) * number_of_samples),
+                "normalized_score": score / (len(datasets) * number_of_samples),
                 "scores": scores,
                 "normalized_scores": normalized_scores,
                 "category_scores": category_scores,
@@ -434,10 +503,14 @@ def main():
                 "number_of_samples": number_of_samples,
                 "run_folder_name": run_folder_name,
             }
-            # don't use append, it's slow
-            results_df = pl.concat([results_df, pl.DataFrame([result])])
-            results_df.write_csv(results_folder / "results.csv")
-        results_df.write_csv(results_folder / "results.csv")
+
+            results_df = pl.DataFrame([*results_df.to_dicts(), result])
+
+            results_df.write_parquet(results_folder / "results.parquet")
+            save_overall_results(results_folder, number_of_samples=number_of_samples)
+        results_df.write_parquet(results_folder / "results.parquet")
+    results_df.write_parquet(results_folder / "results.parquet")
+
     # show results_df after all runs
     print(results_df)
 
