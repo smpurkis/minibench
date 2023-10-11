@@ -12,7 +12,8 @@ import openai
 import polars as pl
 from datasets import load_dataset
 from llama_cpp import Llama
-from tqdm import tqdm
+from tqdm.auto import tqdm
+from os import PathLike
 
 from Datasets.Dataset import CACHE_DATASET_PATH, Dataset, DatasetMeta
 from Datasets.plot import make_radar_chart
@@ -227,7 +228,7 @@ def load_all_datasets(
 
     # serial
     for dataset in datasets:
-        load_dataset(dataset, cache_dir)
+        dataset.load_dataset(cache_dir=cache_dir)
     print(time() - s)
 
 
@@ -316,9 +317,13 @@ def get_datasets(number_of_samples: int, dataset_seed: int = 1) -> list[Dataset]
 
 
 def save_overall_results(
-    results_folder: Path,
-    number_of_samples: int,
+    results_folder: Optional[PathLike] = None,
+    method: str = "matplotlib",
 ):
+    if results_folder is not None:
+        assert Path(
+            results_folder
+        ).exists(), f"Results folder {results_folder} does not exist"
     # form results_df from all the results so far
     results_df = pl.DataFrame()
     for result_folder in Path(results_folder).iterdir():
@@ -330,6 +335,7 @@ def save_overall_results(
         datasets_df = pl.read_parquet(
             result_folder / "datasets_results.parquet",
         )
+        number_of_samples = metadata["number_of_samples"]
 
         datasets = get_datasets(number_of_samples, metadata["dataset_seed"])
 
@@ -366,11 +372,13 @@ def save_overall_results(
         *results_df["normalized_category_scores"].to_list(),
     ]
     labels = ["random", *results_df["model"].to_list()]
-    results_df.write_parquet(results_folder / "results.parquet")
-    make_radar_chart(
+    if result_folder is not None:
+        results_df.write_parquet(results_folder / "results.parquet")
+    return make_radar_chart(
         data_list=data_list,
         labels=labels,
-        save_path=results_folder / "radar_chart",
+        save_path=results_folder / "radar_chart" if method == "matplotlib" else None,
+        method=method,
     )
 
 
@@ -507,7 +515,7 @@ def main():
             results_df = pl.DataFrame([*results_df.to_dicts(), result])
 
             results_df.write_parquet(results_folder / "results.parquet")
-            save_overall_results(results_folder, number_of_samples=number_of_samples)
+            save_overall_results(results_folder)
         results_df.write_parquet(results_folder / "results.parquet")
     results_df.write_parquet(results_folder / "results.parquet")
 

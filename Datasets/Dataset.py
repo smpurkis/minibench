@@ -59,7 +59,6 @@ class Dataset:
 
     def calculate_dataset_metrics(self) -> None:
         self.random_guess_score = 1 / self.df["options"].apply(len).mean()
-        print(self.identifier, self.random_guess_score)
 
     def load_dataset(self, cache_dir: str) -> pl.DataFrame:
         cache_seed_path = (
