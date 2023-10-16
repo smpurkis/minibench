@@ -17,6 +17,9 @@ bert-score = "^0.3.13"
 plotly = "^5.17.0"
 kaleido = "0.2.1"
 notebook = "^7.0.4"
+dash = "^2.13.0"
+gradio-client = "^0.6.0"
+petals = "^2.2.0"
 
 
 [tool.poetry.group.dev.dependencies]

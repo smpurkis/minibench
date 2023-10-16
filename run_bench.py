@@ -326,9 +326,8 @@ def save_overall_results(
         ).exists(), f"Results folder {results_folder} does not exist"
     # form results_df from all the results so far
     results_df = pl.DataFrame()
-    for result_folder in Path(results_folder).iterdir():
-        if result_folder.is_file():
-            continue
+    results_folders = [f for f in Path(results_folder).iterdir() if not f.is_file()]
+    for result_folder in results_folders:
         metadata = json.load(
             open(result_folder / "metadata.json", "r"),
         )
@@ -352,13 +351,14 @@ def save_overall_results(
             for k, v in category_scores.items()
         }
         score = sum(scores.values())
+        normalized_score = score / (len(metadata["datasets"]) * number_of_samples)
 
         result = {
             "model": metadata["model"],
             "model_seed": metadata["model_seed"],
             "dataset_seed": metadata["dataset_seed"],
             "score": score,
-            "normalized_score": score / (len(metadata["datasets"]) * number_of_samples),
+            "normalized_score": normalized_score,
             "scores": scores,
             "normalized_scores": normalized_scores,
             "category_scores": category_scores,
@@ -408,7 +408,7 @@ def main():
     number_of_samples = args.number_of_samples
     results_folder = Path(args.results_location)
     results_folder.mkdir(exist_ok=True)
-    save_overall_results(results_folder, number_of_samples=number_of_samples)
+    save_overall_results(results_folder)
     results_df = pl.DataFrame()
     if (results_folder / "results.csv").exists():
         results_df = pl.read_parquet(results_folder / "results.parquet")

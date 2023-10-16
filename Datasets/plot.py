@@ -5,6 +5,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
+import math
 
 
 def make_radar_chart(
@@ -70,30 +71,70 @@ def make_radar_chart(
         # Create figure
         fig = go.Figure()
 
+        # sort labels with values_list
+        sv_list = sorted(zip(labels, values_list), key=lambda x: x[1][0])
+        labels = [x[0] for x in sv_list]
+        values_list = [x[1] for x in sv_list]
+
         # Add traces for each data dictionary
         for i, values in enumerate(values_list):
             fig.add_trace(
                 go.Scatterpolar(
-                    r=values,
-                    theta=keys + keys[:1],
+                    r=values
+                    + values[:1],  # Add the first value to the end to close the shape
+                    theta=[k.split("/")[0] for k in keys]
+                    + [
+                        keys[0].split("/")[0]
+                    ],  # Repeat the first label to close the shape
                     fill=None,
                     name=labels[i],
-                    line=dict(color=f"rgb{plt.cm.tab10(i)[:3]}"),
+                    line=dict(),
                 )
             )
 
         # Set layout
         fig.update_layout(
             polar=dict(
-                radialaxis=dict(range=[0, 1], visible=False),
-                angularaxis=dict(showticklabels=True, tickangle=-90),
+                radialaxis=dict(
+                    range=[0, 1.1],
+                    visible=True,
+                    color="black",
+                    showline=True,
+                    linewidth=2,
+                    gridcolor="black",
+                    gridwidth=1,
+                ),
+                angularaxis=dict(
+                    showticklabels=True,
+                    tickangle=0,
+                    color="black",
+                    showline=True,
+                    linewidth=2,
+                ),
             ),
             showlegend=True,
-            legend=dict(x=1.1, y=1),
+            legend=dict(x=0, y=1.5, font=dict(size=8)),
             margin=dict(l=50, r=50, t=50, b=50),
             width=800,
             height=800,
+            plot_bgcolor="white",
+            paper_bgcolor="white",
         )
+
+        # Add an axis line for each category
+        # for key in keys:
+        #     fig.add_shape(
+        #         type="line",
+        #         xref="paper",
+        #         yref="paper",
+        #         x0=0.5,
+        #         y0=0.5,
+        #         x1=0.5
+        #         + 0.4 * math.cos(math.radians(keys.index(key) * 360 / len(keys))),
+        #         y1=0.5
+        #         + 0.4 * math.sin(math.radians(keys.index(key) * 360 / len(keys))),
+        #         line=dict(color="Black", width=1),
+        #     )
 
         # Save the plot as a PNG file
         if save_path is not None:
