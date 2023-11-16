@@ -58,6 +58,7 @@ class Dataset:
         self.seed = seed
 
     def calculate_dataset_metrics(self) -> None:
+        print(f"{self.identifier}, Number of samples: {len(self.df)}")
         self.random_guess_score = 1 / self.df["options"].apply(len).mean()
 
     def load_dataset(self, cache_dir: str) -> pl.DataFrame:

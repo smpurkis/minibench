@@ -76,7 +76,7 @@ dataset_metadata = [
         split="validation",
         process_row_fn=process_row_mmlu,
         category="Knowledge/Multi-subject Test",
-    ),
+    ),  # 1.53k
     # DatasetMeta(
     #     path="baber/agieval",
     #     # name="*",
@@ -88,10 +88,10 @@ dataset_metadata = [
     DatasetMeta(
         path="ai2_arc",
         name="ARC-Challenge",
-        split="validation",
+        split="test",
         process_row_fn=process_row_arc,
         category="Knowledge/Multi-subject Test",
-    ),
+    ),  # 1.17k
     # DatasetMeta(
     #     path="ai2_arc",
     #     name="ARC-Easy",
@@ -104,7 +104,7 @@ dataset_metadata = [
         split="test_r1",
         process_row_fn=process_row_anli,
         category="Reasoning/Commonsense Reasoning",
-    ),
+    ),  # 1k
     DatasetMeta(
         path="cosmos_qa",
         split="validation",
@@ -117,14 +117,14 @@ dataset_metadata = [
         split="validation",
         process_row_fn=process_row_hellaswag,
         category="Reasoning/Commonsense Reasoning",
-    ),
+    ),  # 2.99k
     DatasetMeta(
         path="winogrande",
         name="winogrande_s",
         split="validation",
         process_row_fn=process_row_winogrande,
         category="Reasoning/Commonsense Reasoning",
-    ),
+    ),  # 1.27k
     # DatasetMeta(
     #     path="race",
     #     name="middle",
@@ -138,20 +138,20 @@ dataset_metadata = [
         split="validation",
         process_row_fn=process_row_race,
         category="Comprehension/Reading Comprehension",
-    ),
+    ),  # 4.89k
     DatasetMeta(
         path="math_qa",
         split="validation",
         process_row_fn=process_row_mathqa,
         category="Math/Mathmatical Reasoning",
-    ),
+    ),  # 4.48k
     DatasetMeta(
         path="truthful_qa",
         name="multiple_choice",
         split="validation",
         process_row_fn=process_row_truthfulqa,
         category="Safety/Truthfulness",
-    ),
+    ),  # 817
 ]
 
 
@@ -175,6 +175,8 @@ def save_example_prompt(dataset: Dataset):
 
 
 def check_correct_answer(row: pl.Series, completion: str) -> int:
+    if len(completion) == 0:
+        return 0
     score = completion[0] == str(row["answer"])
     if len(completion) > 1 and score:
         confirm = completion[1] == ")"
@@ -240,7 +242,7 @@ def start_model_process(model_path: str, model: str, seed: int) -> Llama:
         model_path=full_model_path.as_posix(),
         n_gpu_layers=1,
         seed=seed,
-        n_ctx=4096,
+        n_ctx=2048,
         verbose=False,
     )
     return llm
@@ -408,16 +410,17 @@ def main():
     number_of_samples = args.number_of_samples
     results_folder = Path(args.results_location)
     results_folder.mkdir(exist_ok=True)
-    save_overall_results(results_folder)
+    if len(list(results_folder.iterdir())) > 0:
+        save_overall_results(results_folder)
     results_df = pl.DataFrame()
     if (results_folder / "results.csv").exists():
         results_df = pl.read_parquet(results_folder / "results.parquet")
 
     for model in args.models.split(","):
         model_seed = args.model_seed
-        print(
-            f"Running model: {model}, with seed: {model_seed}, on datasets: {args.datasets}, with number of samples: {number_of_samples}"
-        )
+        # print(
+        #     f"Running model: {model}, with seed: {model_seed}, on datasets: {args.datasets}, with number of samples: {number_of_samples}"
+        # )
         llm = start_model_process(
             model_path=args.model_path, model=model, seed=model_seed
         )
