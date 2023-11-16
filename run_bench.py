@@ -231,7 +231,7 @@ def load_all_datasets(
     # serial
     for dataset in datasets:
         dataset.load_dataset(cache_dir=cache_dir)
-    print(time() - s)
+    # print(time() - s)
 
 
 def start_model_process(model_path: str, model: str, seed: int) -> Llama:
@@ -311,9 +311,9 @@ def get_datasets(number_of_samples: int, dataset_seed: int = 1) -> list[Dataset]
             category=meta.category,
             seed=dataset_seed,
         )
-        for meta in tqdm(dataset_metadata)
+        for meta in dataset_metadata
     ]
-    print(f"Loading datasets with seed: {dataset_seed}")
+    # print(f"Loading datasets with seed: {dataset_seed}")
     load_all_datasets(datasets)
     return datasets
 
